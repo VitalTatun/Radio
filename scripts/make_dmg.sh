@@ -9,9 +9,11 @@ SCHEME_NAME="Radio"
 CONFIGURATION="Release"
 BUILD_ROOT="${PROJECT_ROOT}/dist/build"
 OUTPUT_PATH="${PROJECT_ROOT}/dist/Radio.dmg"
+OUTPUT_PATH_EXPLICIT=0
 BACKGROUND_SOURCE=""
 VOLUME_NAME="Radio"
 SKIP_WINDOW_CUSTOMIZATION=0
+VERSION=""
 
 usage() {
     cat <<EOF
@@ -22,6 +24,7 @@ Options:
   --output PATH         Output DMG path. Default: ${OUTPUT_PATH}
   --background PATH     Optional PNG/JPG background image passed to build_dmg.sh
   --volume-name NAME    DMG volume name. Default: ${VOLUME_NAME}
+  --version VALUE       Version suffix for DMG name, e.g. v1.2.0 -> Radio-v1.2.0.dmg
   --skip-window-customization  Disable Finder window customization for headless CI
   --help                Show this message.
 EOF
@@ -55,6 +58,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --output)
             OUTPUT_PATH="$(resolve_absolute_path "$2")"
+            OUTPUT_PATH_EXPLICIT=1
             shift 2
             ;;
         --background)
@@ -63,6 +67,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --volume-name)
             VOLUME_NAME="$2"
+            shift 2
+            ;;
+        --version)
+            VERSION="$2"
             shift 2
             ;;
         --skip-window-customization)
@@ -92,6 +100,10 @@ fi
 if [[ -n "${BACKGROUND_SOURCE}" && ! -f "${BACKGROUND_SOURCE}" ]]; then
     printf 'Background image not found: %s\n' "${BACKGROUND_SOURCE}" >&2
     exit 1
+fi
+
+if [[ -n "${VERSION}" && "${OUTPUT_PATH_EXPLICIT}" -eq 0 ]]; then
+    OUTPUT_PATH="${PROJECT_ROOT}/dist/Radio-${VERSION}.dmg"
 fi
 
 mkdir -p "${BUILD_ROOT}" "$(dirname "${OUTPUT_PATH}")"

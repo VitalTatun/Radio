@@ -2,12 +2,22 @@
 
 macOS menu bar radio player built with SwiftUI.
 
+Latest release:
+
+[Download the latest DMG](https://github.com/VitalTatun/Radio/releases/latest)
+
 ## Build DMG
 
 Create a release build and package it into a DMG with one command:
 
 ```bash
 bash /Users/vital/Development/Radio/scripts/make_dmg.sh
+```
+
+Versioned DMG file:
+
+```bash
+bash /Users/vital/Development/Radio/scripts/make_dmg.sh --version v1.2.0
 ```
 
 Optional custom background image:
@@ -46,3 +56,4 @@ bash /Users/vital/Development/Radio/scripts/make_dmg.sh --skip-window-customizat
 - The project does not require a paid Apple Developer account to build locally.
 - Without notarization, Gatekeeper warnings for other users are expected.
 - GitHub Actions workflow is available in `.github/workflows/build-dmg.yml`.
+- Published GitHub releases attach a versioned DMG file automatically.
