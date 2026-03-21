@@ -57,3 +57,18 @@ bash /Users/vital/Development/Radio/scripts/make_dmg.sh --skip-window-customizat
 - Without notarization, Gatekeeper warnings for other users are expected.
 - GitHub Actions workflow is available in `.github/workflows/build-dmg.yml`.
 - Published GitHub releases attach a versioned DMG file automatically.
+
+## Self-Hosted Release Builds
+
+The release workflow is configured for a self-hosted macOS runner so GitHub Actions can build with your local Xcode, SDK, and signing setup.
+
+To enable it:
+
+1. Open the GitHub repository.
+2. Go to `Settings > Actions > Runners`.
+3. Click `New self-hosted runner`.
+4. Choose `macOS`.
+5. Run the provided setup commands on your Mac inside a dedicated folder.
+6. Keep the runner online when publishing a GitHub release.
+
+After that, publishing a release will build and attach the DMG from your own Mac instead of GitHub's hosted runner.

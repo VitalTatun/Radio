@@ -8,11 +8,16 @@ on:
 
 jobs:
   build-dmg:
-    runs-on: macos-latest
+    runs-on:
+      - self-hosted
+      - macOS
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Set DMG metadata
         run: |
