@@ -20,15 +20,13 @@ final class RadioPlayer: ObservableObject {
             saveVolume()
         }
     }
-    @Published private(set) var statusText = "Остановлено"
-    @Published private(set) var nowPlayingTitle = "Неизвестный трек"
-    @Published private(set) var nowPlayingArtist = "Неизвестный исполнитель"
+    @Published private(set) var statusText = Localization.statusStopped
+    @Published private(set) var nowPlayingTitle = Localization.unknownTrack
+    @Published private(set) var nowPlayingArtist = Localization.unknownArtist
     @Published private(set) var nowPlayingArtwork: NSImage?
 
     private static let maxStations = 15
     private static let defaultStations: [Station] = [
-        Station(name: "iHeart Z100 (metadata)", url: URL(string: "https://stream.revma.ihrhls.com/zc185")!),
-        Station(name: "Apple Test Stream", url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!),
         Station(name: "Lofi Radio", url: URL(string: "https://play.streamafrica.net/lofiradio")!),
         Station(name: "BBC Radio 1", url: URL(string: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one")!)
     ]
@@ -67,7 +65,7 @@ final class RadioPlayer: ObservableObject {
         if isPlaying || player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
             pause()
         } else {
-            statusText = "Запускаю..."
+            statusText = Localization.statusStarting
             playSelectedStation(forceReload: true)
         }
     }
@@ -75,7 +73,7 @@ final class RadioPlayer: ObservableObject {
     func selectStation(_ station: Station) {
         selectedStationID = station.id
         saveSelectedStationID()
-        statusText = "Запускаю..."
+        statusText = Localization.statusStarting
         playSelectedStation(forceReload: true)
     }
 
@@ -104,7 +102,7 @@ final class RadioPlayer: ObservableObject {
         saveStations()
 
         if selectedStationID == station.id {
-            statusText = "Запускаю..."
+            statusText = Localization.statusStarting
             playSelectedStation(forceReload: true)
         }
 
@@ -122,7 +120,7 @@ final class RadioPlayer: ObservableObject {
             player.pause()
             player.replaceCurrentItem(with: nil)
             isPlaying = false
-            statusText = "Нет станций"
+            statusText = Localization.statusNoStations
             resetNowPlaying()
             return
         }
@@ -130,13 +128,13 @@ final class RadioPlayer: ObservableObject {
         if wasSelected {
             selectedStationID = stations.first?.id
             saveSelectedStationID()
-            statusText = "Запускаю..."
+            statusText = Localization.statusStarting
             playSelectedStation(forceReload: true)
         }
     }
 
     func restartCurrentStation() {
-        statusText = "Перезапускаю поток..."
+        statusText = Localization.statusRestarting
         playSelectedStation(forceReload: true)
     }
 
@@ -221,27 +219,27 @@ final class RadioPlayer: ObservableObject {
                 case .paused:
                     self.isPlaying = false
                     if self.isLoadingStation,
-                       self.statusText != "Запускаю...",
-                       self.statusText != "Подключение...",
-                       self.statusText != "Буферизация...",
-                       self.statusText != "Перезапускаю поток..." {
+                       self.statusText != Localization.statusStarting,
+                       self.statusText != Localization.statusConnecting,
+                       self.statusText != Localization.statusBuffering,
+                       self.statusText != Localization.statusRestarting {
                         self.isLoadingStation = false
                     }
-                    if self.statusText == "Буферизация..." || self.statusText == "Играет" {
-                        self.statusText = "Пауза"
+                    if self.statusText == Localization.statusBuffering || self.statusText == Localization.statusPlaying {
+                        self.statusText = Localization.statusPaused
                     }
                 case .waitingToPlayAtSpecifiedRate:
                     self.isPlaying = false
                     self.isLoadingStation = true
-                    self.statusText = "Буферизация..."
+                    self.statusText = Localization.statusBuffering
                 case .playing:
                     self.isPlaying = true
                     self.isLoadingStation = !self.isCurrentItemReadyToPlay
-                    self.statusText = "Играет"
+                    self.statusText = Localization.statusPlaying
                 @unknown default:
                     self.isPlaying = false
                     self.isLoadingStation = false
-                    self.statusText = "Неизвестное состояние"
+                    self.statusText = Localization.statusUnknown
                 }
             }
             .store(in: &cancellables)
@@ -251,7 +249,7 @@ final class RadioPlayer: ObservableObject {
         player.pause()
         isPlaying = false
         isLoadingStation = false
-        statusText = "Пауза"
+        statusText = Localization.statusPaused
     }
 
     private func playSelectedStation(forceReload: Bool) {
@@ -268,7 +266,7 @@ final class RadioPlayer: ObservableObject {
 
         isCurrentItemReadyToPlay = false
         isLoadingStation = true
-        statusText = "Подключение..."
+        statusText = Localization.statusConnecting
         resetNowPlaying()
 
         let item = AVPlayerItem(url: station.url)
@@ -316,16 +314,16 @@ final class RadioPlayer: ObservableObject {
                         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCannotFindHost {
                             let host = item.asset as? AVURLAsset
                             let hostName = host?.url.host ?? "unknown-host"
-                            self.statusText = "DNS ошибка (-1003): не найден хост \(hostName). Проверьте VPN/Proxy/DNS."
+                            self.statusText = Localization.dnsError(hostName)
                         } else {
                             self.statusText = error.localizedDescription
                         }
                     } else {
-                        self.statusText = "Ошибка воспроизведения"
+                        self.statusText = Localization.playbackError
                     }
                 @unknown default:
                     self.isPlaying = false
-                    self.statusText = "Ошибка воспроизведения"
+                    self.statusText = Localization.playbackError
                 }
             }
     }
@@ -334,8 +332,8 @@ final class RadioPlayer: ObservableObject {
         metadataItemsTask?.cancel()
         artworkLoadTask?.cancel()
         lastArtworkLookupKey = nil
-        nowPlayingTitle = "Неизвестный трек"
-        nowPlayingArtist = "Неизвестный исполнитель"
+        nowPlayingTitle = Localization.unknownTrack
+        nowPlayingArtist = Localization.unknownArtist
         nowPlayingArtwork = nil
     }
 
@@ -485,8 +483,8 @@ final class RadioPlayer: ObservableObject {
     private func loadArtworkFromSearchIfNeeded(artist: String, title: String) {
         guard !artist.isEmpty,
               !title.isEmpty,
-              artist != "Неизвестный исполнитель",
-              title != "Неизвестный трек"
+              artist != Localization.unknownArtist,
+              title != Localization.unknownTrack
         else {
             return
         }
@@ -552,4 +550,23 @@ private struct ITunesSearchResponse: Decodable {
 private struct ITunesTrackResult: Decodable {
     let artworkUrl60: String?
     let artworkUrl100: String?
+}
+
+private enum Localization {
+    static let statusStopped = String(localized: "player.status.stopped")
+    static let statusStarting = String(localized: "player.status.starting")
+    static let statusNoStations = String(localized: "player.status.no_stations")
+    static let statusRestarting = String(localized: "player.status.restarting")
+    static let statusConnecting = String(localized: "player.status.connecting")
+    static let statusBuffering = String(localized: "player.status.buffering")
+    static let statusPlaying = String(localized: "player.status.playing")
+    static let statusPaused = String(localized: "player.status.paused")
+    static let statusUnknown = String(localized: "player.status.unknown")
+    static let playbackError = String(localized: "player.status.playback_error")
+    static let unknownTrack = String(localized: "player.unknown_track")
+    static let unknownArtist = String(localized: "player.unknown_artist")
+
+    static func dnsError(_ hostName: String) -> String {
+        String(format: NSLocalizedString("player.status.dns_error", comment: "DNS resolution failure for the given host"), hostName)
+    }
 }

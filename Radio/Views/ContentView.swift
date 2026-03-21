@@ -14,6 +14,7 @@ struct ContentView: View {
         case canAdd
         case limitReached
     }
+    
 
     private var stationListState: StationListState {
         radioPlayer.stations.count < 15 ? .canAdd : .limitReached
@@ -22,9 +23,15 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(radioPlayer.selectedStation?.name ?? "Станция не выбрана")
-                    .font(.headline)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(radioPlayer.selectedStation?.name ?? String(localized: "station.none_selected"))
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(radioPlayer.statusText)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 
@@ -37,7 +44,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help(radioPlayer.isPlaying ? "Пауза" : "Плей")
+                .help(radioPlayer.isPlaying ? String(localized: "action.pause") : String(localized: "action.play"))
 
                 Button {
                     radioPlayer.restartCurrentStation()
@@ -48,7 +55,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help("Перезапустить поток")
+                .help(String(localized: "action.restart_stream"))
             }
 
             nowPlayingSection
@@ -57,7 +64,7 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("Станции")
+                Text("section.stations")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -71,16 +78,16 @@ struct ContentView: View {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.glass)
-                    .help("Добавить станцию")
+                    .help(String(localized: "action.add_station"))
                 case .limitReached:
-                    Text("Достигнут лимит 15 станций")
+                    Text("stations.limit_reached")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if radioPlayer.stations.isEmpty {
-                Text("Пока нет станций")
+                Text("stations.empty")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -122,21 +129,21 @@ struct ContentView: View {
                             hoveredStationID = isHovering ? station.id : nil
                         }
                         .contextMenu {
-                            Button("Редактировать") {
+                            Button("action.edit") {
                                 beginEditingStation(station)
                             }
 
                             Button(role: .destructive) {
                                 radioPlayer.deleteStation(station)
                             } label: {
-                                Text("Удалить")
+                                Text("action.delete")
                             }
                         }
                     }
                 }
 
                 if case .limitReached = stationListState {
-                    Text("Вы достигли максимума: 15 станций")
+                    Text("stations.limit_reached_detail")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -178,14 +185,14 @@ struct ContentView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(radioPlayer.statusText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
 
             Spacer()
         }
+        .padding(5)
+        .background(.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 15))
+
     }
 
     private var volumeSection: some View {
@@ -206,29 +213,29 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .help("Громкость")
+        .help(String(localized: "player.volume"))
     }
 
     private var addStationForm: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Название", text: $newStationName)
+            TextField("station.name_placeholder", text: $newStationName)
             TextField("https://example.com/stream", text: $newStationURL)
 
             if showValidationError {
-                Text("Введите корректные название и URL (http/https).")
+                Text("station.validation_error")
                     .foregroundStyle(.red)
                     .font(.caption)
             }
 
             HStack {
-                Button("Отмена") {
+                Button("action.cancel") {
                     isShowingAddStationForm = false
                     clearAddStationForm()
                 }
 
                 Spacer()
 
-                Button(editingStation == nil ? "Добавить" : "Сохранить") {
+                Button(editingStation == nil ? String(localized: "action.add") : String(localized: "action.save")) {
                     let wasSuccessful: Bool
 
                     if let editingStation {

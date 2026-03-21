@@ -49,7 +49,7 @@ final class StatusBarController: NSObject {
     private func showContextMenu() {
         let menu = NSMenu()
         let quitItem = NSMenuItem(
-            title: "Закрыть приложение",
+            title: String(localized: "menu.quit_application"),
             action: #selector(quitApplication),
             keyEquivalent: "q"
         )

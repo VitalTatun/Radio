@@ -1,0 +1,32 @@
+name: Build DMG
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build DMG
+        run: |
+          bash ./scripts/make_dmg.sh --skip-window-customization
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Radio-dmg
+          path: dist/Radio.dmg
+          if-no-files-found: error
+
+      - name: Attach DMG to GitHub release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Radio.dmg
