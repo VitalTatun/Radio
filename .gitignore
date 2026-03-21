@@ -1,0 +1,6 @@
+dist/
+
+# Xcode user-specific data
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
