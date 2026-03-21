@@ -78,13 +78,11 @@ find_app() {
 
 generate_background() {
     local destination="$1"
-    local volume_name="$2"
 
-    swift - "$destination" "$volume_name" <<'EOF'
+    swift - "$destination" <<'EOF'
 import AppKit
 
 let outputURL = URL(fileURLWithPath: CommandLine.arguments[1])
-let volumeName = CommandLine.arguments[2]
 let size = NSSize(width: 640, height: 420)
 
 let image = NSImage(size: size)
@@ -98,32 +96,6 @@ let gradient = NSGradient(colors: [
     NSColor(calibratedRed: 0.91, green: 0.53, blue: 0.24, alpha: 1.0)
 ])!
 gradient.draw(in: NSRect(x: 0, y: 0, width: size.width, height: size.height), angle: 18)
-
-NSColor.white.withAlphaComponent(0.14).setFill()
-NSBezierPath(roundedRect: NSRect(x: 34, y: 250, width: 572, height: 120), xRadius: 26, yRadius: 26).fill()
-
-let titleStyle = NSMutableParagraphStyle()
-titleStyle.alignment = .left
-
-let title = NSAttributedString(
-    string: volumeName,
-    attributes: [
-        .font: NSFont.systemFont(ofSize: 44, weight: .bold),
-        .foregroundColor: NSColor.white,
-        .paragraphStyle: titleStyle
-    ]
-)
-title.draw(in: NSRect(x: 56, y: 286, width: 300, height: 52))
-
-let subtitle = NSAttributedString(
-    string: "Drag the app into Applications",
-    attributes: [
-        .font: NSFont.systemFont(ofSize: 20, weight: .medium),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.95),
-        .paragraphStyle: titleStyle
-    ]
-)
-subtitle.draw(in: NSRect(x: 58, y: 254, width: 340, height: 30))
 
 let arrowPath = NSBezierPath()
 arrowPath.lineWidth = 12
@@ -244,7 +216,6 @@ APP_BUNDLE_NAME="$(basename "${APP_PATH}")"
 DIST_DIR="$(dirname "${OUTPUT_PATH}")"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/radio-dmg-staging.XXXXXX")"
 RW_DMG_PATH="$(mktemp "${TMPDIR:-/tmp}/radio-temp.XXXXXX.dmg")"
-MOUNT_ROOT="${STAGING_DIR}/mount"
 BACKGROUND_DIR="${STAGING_DIR}/.background"
 BACKGROUND_PATH="${BACKGROUND_DIR}/background.png"
 VOLUME_PATH="/Volumes/${VOLUME_NAME}"
@@ -259,13 +230,19 @@ cleanup() {
 
 trap cleanup EXIT
 
-mkdir -p "${DIST_DIR}" "${MOUNT_ROOT}" "${BACKGROUND_DIR}"
+if [[ -d "${VOLUME_PATH}" ]]; then
+    log "Detaching existing mounted volume at ${VOLUME_PATH}"
+    hdiutil detach "${VOLUME_PATH}" -force -quiet || true
+    sleep 1
+fi
+
+mkdir -p "${DIST_DIR}" "${BACKGROUND_DIR}"
 rm -f "${OUTPUT_PATH}"
 
 if [[ -n "${BACKGROUND_SOURCE}" ]]; then
     cp "${BACKGROUND_SOURCE}" "${BACKGROUND_PATH}"
 else
-    generate_background "${BACKGROUND_PATH}" "${VOLUME_NAME}"
+    generate_background "${BACKGROUND_PATH}"
 fi
 
 cp -R "${APP_PATH}" "${STAGING_DIR}/${APP_BUNDLE_NAME}"
