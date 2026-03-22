@@ -93,6 +93,17 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .help(L10n.string(L10n.actionHistory))
 
+                if case .history = listMode {
+                    Button {
+                        radioPlayer.clearTrackHistory()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.glass)
+                    .help(L10n.string(L10n.actionClearHistory))
+                    .disabled(radioPlayer.trackHistory.isEmpty)
+                }
+
                 if case .stations = listMode {
                     switch stationListState {
                     case .canAdd:
@@ -184,10 +195,23 @@ struct ContentView: View {
                     VStack(spacing: 6) {
                         ForEach(radioPlayer.trackHistory) { item in
                             HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "music.note")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 14, height: 14)
+                                Group {
+                                    if let artworkData = item.artworkData,
+                                       let artwork = NSImage(data: artworkData) {
+                                        Image(nsImage: artwork)
+                                            .resizable()
+                                            .scaledToFill()
+                                    } else {
+                                        Image(systemName: "music.note")
+                                            .resizable()
+                                            .scaledToFit()
+                                            .padding(6)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(width: 44, height: 44)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(item.title)

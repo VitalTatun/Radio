@@ -1,6 +1,7 @@
 "action.add" = "Добавить";
 "action.add_station" = "Добавить станцию";
 "action.cancel" = "Отмена";
+"action.clear_history" = "Очистить историю";
 "action.delete" = "Удалить";
 "action.edit" = "Редактировать";
 "action.history" = "Показать историю треков";

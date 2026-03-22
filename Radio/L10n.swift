@@ -6,6 +6,7 @@ enum L10n {
     static let actionCancel: LocalizedStringResource = "action.cancel"
     static let actionDelete: LocalizedStringResource = "action.delete"
     static let actionEdit: LocalizedStringResource = "action.edit"
+    static let actionClearHistory: LocalizedStringResource = "action.clear_history"
     static let actionHistory: LocalizedStringResource = "action.history"
     static let actionPause: LocalizedStringResource = "action.pause"
     static let actionPlay: LocalizedStringResource = "action.play"

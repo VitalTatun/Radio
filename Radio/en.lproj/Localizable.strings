@@ -1,6 +1,7 @@
 "action.add" = "Add";
 "action.add_station" = "Add station";
 "action.cancel" = "Cancel";
+"action.clear_history" = "Clear history";
 "action.delete" = "Delete";
 "action.edit" = "Edit";
 "action.history" = "Show track history";

@@ -161,6 +161,11 @@ final class RadioPlayer: ObservableObject {
         URLCache.shared.removeAllCachedResponses()
     }
 
+    func clearTrackHistory() {
+        trackHistory = []
+        lastRecordedTrackKey = nil
+    }
+
     private func loadPersistedStations() {
         stations = stationStore.loadStations()
         selectedStationID = stationStore.loadSelectedStationID(validStations: stations) ?? stations.first?.id
@@ -367,6 +372,7 @@ final class RadioPlayer: ObservableObject {
                     return
                 }
                 self.nowPlayingArtwork = image
+                self.applyArtworkToLatestHistoryItem(image)
             } catch {
                 // Keep existing artwork/placeholder when fetch fails.
             }
@@ -404,6 +410,7 @@ final class RadioPlayer: ObservableObject {
                 }
 
                 self.nowPlayingArtwork = image
+                self.applyArtworkToLatestHistoryItem(image)
             } catch {
                 // Keep existing artwork/placeholder when search fails.
             }
@@ -433,7 +440,8 @@ final class RadioPlayer: ObservableObject {
             TrackHistoryItem(
                 title: trimmedTitle,
                 artist: trimmedArtist,
-                stationName: stationName
+                stationName: stationName,
+                artworkData: nowPlayingArtwork?.tiffRepresentation
             ),
             at: 0
         )
@@ -441,5 +449,21 @@ final class RadioPlayer: ObservableObject {
         if trackHistory.count > Self.maxTrackHistoryCount {
             trackHistory.removeLast(trackHistory.count - Self.maxTrackHistoryCount)
         }
+    }
+
+    private func applyArtworkToLatestHistoryItem(_ image: NSImage) {
+        guard !trackHistory.isEmpty else { return }
+        guard let artworkData = image.tiffRepresentation else { return }
+        guard trackHistory[0].artworkData == nil else { return }
+
+        let latest = trackHistory[0]
+        trackHistory[0] = TrackHistoryItem(
+            id: latest.id,
+            title: latest.title,
+            artist: latest.artist,
+            stationName: latest.stationName,
+            playedAt: latest.playedAt,
+            artworkData: artworkData
+        )
     }
 }
