@@ -5,10 +5,16 @@ struct ContentView: View {
 
     @State private var isShowingAddStationForm = false
     @State private var editingStation: Station?
+    @State private var listMode: ListMode = .stations
     @State private var newStationName = ""
     @State private var newStationURL = ""
     @State private var showValidationError = false
     @State private var hoveredStationID: Station.ID?
+
+    private enum ListMode {
+        case stations
+        case history
+    }
 
     private enum StationListState {
         case canAdd
@@ -18,6 +24,15 @@ struct ContentView: View {
 
     private var stationListState: StationListState {
         radioPlayer.stations.count < 15 ? .canAdd : .limitReached
+    }
+
+    private var listSectionTitle: LocalizedStringResource {
+        switch listMode {
+        case .stations:
+            L10n.sectionStations
+        case .history:
+            L10n.sectionHistory
+        }
     }
 
     var body: some View {
@@ -64,92 +79,146 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text(L10n.sectionStations)
+                Text(listSectionTitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 Spacer()
 
-                switch stationListState {
-                case .canAdd:
-                    Button {
-                        beginAddingStation()
-                    } label: {
-                        Image(systemName: "plus")
+                Button {
+                    toggleListMode()
+                } label: {
+                    Image(systemName: listMode == .history ? "dot.radiowaves.left.and.right" : "music.note.list")
+                }
+                .buttonStyle(.glass)
+                .help(L10n.string(L10n.actionHistory))
+
+                if case .stations = listMode {
+                    switch stationListState {
+                    case .canAdd:
+                        Button {
+                            beginAddingStation()
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.glass)
+                        .help(L10n.string(L10n.actionAddStation))
+                    case .limitReached:
+                        Text(L10n.stationsLimitReached)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.glass)
-                    .help(L10n.string(L10n.actionAddStation))
-                case .limitReached:
-                    Text(L10n.stationsLimitReached)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            if radioPlayer.stations.isEmpty {
-                Text(L10n.stationsEmpty)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 4) {
-                    ForEach(radioPlayer.stations) { station in
-                        Button {
-                            radioPlayer.selectStation(station)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Group {
-                                    if let indicatorSymbol = stationIndicatorSymbol(for: station) {
-                                        if indicatorSymbol == "circle.dashed" {
-                                            Image(systemName: indicatorSymbol)
-                                                .contentTransition(.symbolEffect(.replace))
-                                                .symbolEffect(.rotate, options: .repeating)
+            switch listMode {
+            case .stations:
+                if radioPlayer.stations.isEmpty {
+                    Text(L10n.stationsEmpty)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 4) {
+                        ForEach(radioPlayer.stations) { station in
+                            Button {
+                                radioPlayer.selectStation(station)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Group {
+                                        if let indicatorSymbol = stationIndicatorSymbol(for: station) {
+                                            if indicatorSymbol == "circle.dashed" {
+                                                Image(systemName: indicatorSymbol)
+                                                    .contentTransition(.symbolEffect(.replace))
+                                                    .symbolEffect(.rotate, options: .repeating)
+                                            } else {
+                                                Image(systemName: indicatorSymbol)
+                                                    .contentTransition(.symbolEffect(.replace))
+                                            }
                                         } else {
-                                            Image(systemName: indicatorSymbol)
-                                                .contentTransition(.symbolEffect(.replace))
+                                            Color.clear
                                         }
-                                    } else {
-                                        Color.clear
                                     }
+                                    .frame(width: 14, height: 14)
+                                    Text(station.name)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
                                 }
-                                .frame(width: 14, height: 14)
-                                Text(station.name)
-                                    .lineLimit(1)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(hoveredStationID == station.id ? Color.secondary.opacity(0.15) : .clear)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(RoundedRectangle(cornerRadius: 6))
+                            .onHover { isHovering in
+                                hoveredStationID = isHovering ? station.id : nil
+                            }
+                            .contextMenu {
+                                Button(L10n.actionEdit) {
+                                    beginEditingStation(station)
+                                }
+
+                                Button(role: .destructive) {
+                                    radioPlayer.deleteStation(station)
+                                } label: {
+                                    Text(L10n.actionDelete)
+                                }
+                            }
+                        }
+                    }
+
+                    if case .limitReached = stationListState {
+                        Text(L10n.stationsLimitReachedDetail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .history:
+                if radioPlayer.trackHistory.isEmpty {
+                    Text(L10n.historyEmpty)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(radioPlayer.trackHistory) { item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "music.note")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 14, height: 14)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline)
+                                        .lineLimit(1)
+                                    Text(item.artist)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                    Text("\(item.stationName) • \(item.playedAt.formatted(date: .omitted, time: .shortened))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
                                 Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 6)
                             .padding(.vertical, 4)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(hoveredStationID == station.id ? Color.secondary.opacity(0.15) : .clear)
+                                    .fill(Color.secondary.opacity(0.08))
                             )
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(RoundedRectangle(cornerRadius: 6))
-                        .onHover { isHovering in
-                            hoveredStationID = isHovering ? station.id : nil
-                        }
-                        .contextMenu {
-                            Button(L10n.actionEdit) {
-                                beginEditingStation(station)
-                            }
-
-                            Button(role: .destructive) {
-                                radioPlayer.deleteStation(station)
-                            } label: {
-                                Text(L10n.actionDelete)
-                            }
                         }
                     }
                 }
-
-                if case .limitReached = stationListState {
-                    Text(L10n.stationsLimitReachedDetail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
             }
 
-            if isShowingAddStationForm, case .canAdd = stationListState {
+            if isShowingAddStationForm,
+               case .canAdd = stationListState,
+               case .stations = listMode {
                 addStationForm
             }
         }
@@ -259,6 +328,7 @@ struct ContentView: View {
 
     private func beginAddingStation() {
         guard case .canAdd = stationListState else { return }
+        listMode = .stations
         editingStation = nil
         showValidationError = false
 
@@ -272,6 +342,7 @@ struct ContentView: View {
     }
 
     private func beginEditingStation(_ station: Station) {
+        listMode = .stations
         editingStation = station
         showValidationError = false
         newStationName = station.name
@@ -284,6 +355,10 @@ struct ContentView: View {
         editingStation = nil
         newStationName = ""
         newStationURL = ""
+    }
+
+    private func toggleListMode() {
+        listMode = listMode == .stations ? .history : .stations
     }
 
     private func stationIndicatorSymbol(for station: Station) -> String? {

@@ -24,8 +24,10 @@ final class RadioPlayer: ObservableObject {
     @Published private(set) var nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
     @Published private(set) var nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
     @Published private(set) var nowPlayingArtwork: NSImage?
+    @Published private(set) var trackHistory: [TrackHistoryItem] = []
 
     private static let maxStations = 15
+    private static let maxTrackHistoryCount = 100
 
     private let volumeStorageKey = "playerVolume"
     private let stationStore: StationStore
@@ -40,6 +42,7 @@ final class RadioPlayer: ObservableObject {
     private var metadataItemsTask: Task<Void, Never>?
     private var artworkLoadTask: Task<Void, Never>?
     private var lastArtworkLookupKey: String?
+    private var lastRecordedTrackKey: String?
     private var isCurrentItemReadyToPlay = false
 
     init(
@@ -335,6 +338,8 @@ final class RadioPlayer: ObservableObject {
                 nowPlayingArtist = artist
             }
 
+            recordTrackHistoryIfNeeded()
+
             if let detectedArtwork = resolved.artwork {
                 self.lastArtworkLookupKey = nil
                 self.nowPlayingArtwork = detectedArtwork
@@ -402,6 +407,39 @@ final class RadioPlayer: ObservableObject {
             } catch {
                 // Keep existing artwork/placeholder when search fails.
             }
+        }
+    }
+
+    private func recordTrackHistoryIfNeeded() {
+        let unknownTitle = L10n.string(L10n.playerUnknownTrack)
+        let unknownArtist = L10n.string(L10n.playerUnknownArtist)
+        let trimmedTitle = nowPlayingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedArtist = nowPlayingArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedTitle.isEmpty,
+              !trimmedArtist.isEmpty,
+              trimmedTitle != unknownTitle,
+              trimmedArtist != unknownArtist,
+              let stationName = selectedStation?.name
+        else {
+            return
+        }
+
+        let trackKey = "\(stationName.lowercased())|\(trimmedArtist.lowercased())|\(trimmedTitle.lowercased())"
+        guard trackKey != lastRecordedTrackKey else { return }
+
+        lastRecordedTrackKey = trackKey
+        trackHistory.insert(
+            TrackHistoryItem(
+                title: trimmedTitle,
+                artist: trimmedArtist,
+                stationName: stationName
+            ),
+            at: 0
+        )
+
+        if trackHistory.count > Self.maxTrackHistoryCount {
+            trackHistory.removeLast(trackHistory.count - Self.maxTrackHistoryCount)
         }
     }
 }

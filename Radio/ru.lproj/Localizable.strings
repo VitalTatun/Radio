@@ -3,10 +3,12 @@
 "action.cancel" = "Отмена";
 "action.delete" = "Удалить";
 "action.edit" = "Редактировать";
+"action.history" = "Показать историю треков";
 "action.pause" = "Пауза";
 "action.play" = "Плей";
 "action.restart_stream" = "Перезапустить поток";
 "action.save" = "Сохранить";
+"history.empty" = "Пока нет истории треков";
 "menu.quit_application" = "Закрыть приложение";
 "player.status.buffering" = "Буферизация...";
 "player.status.connecting" = "Подключение...";
@@ -22,6 +24,7 @@
 "player.unknown_artist" = "Неизвестный исполнитель";
 "player.unknown_track" = "Неизвестный трек";
 "player.volume" = "Громкость";
+"section.history" = "История";
 "section.stations" = "Станции";
 "station.name_placeholder" = "Название";
 "station.none_selected" = "Станция не выбрана";

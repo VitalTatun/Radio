@@ -3,10 +3,12 @@
 "action.cancel" = "Cancel";
 "action.delete" = "Delete";
 "action.edit" = "Edit";
+"action.history" = "Show track history";
 "action.pause" = "Pause";
 "action.play" = "Play";
 "action.restart_stream" = "Restart stream";
 "action.save" = "Save";
+"history.empty" = "No played tracks yet";
 "menu.quit_application" = "Quit Application";
 "player.status.buffering" = "Buffering...";
 "player.status.connecting" = "Connecting...";
@@ -22,6 +24,7 @@
 "player.unknown_artist" = "Unknown artist";
 "player.unknown_track" = "Unknown track";
 "player.volume" = "Volume";
+"section.history" = "History";
 "section.stations" = "Stations";
 "station.name_placeholder" = "Name";
 "station.none_selected" = "No station selected";
