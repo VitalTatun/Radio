@@ -27,7 +27,7 @@ final class RadioPlayer: ObservableObject {
     @Published private(set) var trackHistory: [TrackHistoryItem] = []
 
     private static let maxStations = 15
-    private static let maxTrackHistoryCount = 100
+    private static let maxTrackHistoryCount = 10
 
     private let volumeStorageKey = "playerVolume"
     private let stationStore: StationStore
