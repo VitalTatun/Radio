@@ -290,7 +290,7 @@ struct ContentView: View {
             Spacer()
         }
         .padding(5)
-        .background(.white.opacity(0.1))
+        .background(.white.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 15))
 
     }
