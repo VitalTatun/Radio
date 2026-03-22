@@ -20,7 +20,9 @@ struct ContentView: View {
         case canAdd
         case limitReached
     }
-    
+
+    private let listToolbarButtonHeight: CGFloat = 24
+    private let listToolbarButtonWidth: CGFloat = 28
 
     private var stationListState: StationListState {
         radioPlayer.stations.count < 15 ? .canAdd : .limitReached
@@ -88,18 +90,22 @@ struct ContentView: View {
                 Button {
                     toggleListMode()
                 } label: {
-                    Image(systemName: listMode == .history ? "dot.radiowaves.left.and.right" : "music.note.list")
+                    listToolbarButtonLabel(
+                        systemName: listMode == .history ? "dot.radiowaves.left.and.right" : "music.note.list"
+                    )
                 }
                 .buttonStyle(.glass)
+                .controlSize(.small)
                 .help(L10n.string(L10n.actionHistory))
 
                 if case .history = listMode {
                     Button {
                         radioPlayer.clearTrackHistory()
                     } label: {
-                        Image(systemName: "trash")
+                        listToolbarButtonLabel(systemName: "trash")
                     }
                     .buttonStyle(.glass)
+                    .controlSize(.small)
                     .help(L10n.string(L10n.actionClearHistory))
                     .disabled(radioPlayer.trackHistory.isEmpty)
                 }
@@ -110,9 +116,10 @@ struct ContentView: View {
                         Button {
                             beginAddingStation()
                         } label: {
-                            Image(systemName: "plus")
+                            listToolbarButtonLabel(systemName: "plus")
                         }
                         .buttonStyle(.glass)
+                        .controlSize(.small)
                         .help(L10n.string(L10n.actionAddStation))
                     case .limitReached:
                         Text(L10n.stationsLimitReached)
@@ -383,6 +390,12 @@ struct ContentView: View {
 
     private func toggleListMode() {
         listMode = listMode == .stations ? .history : .stations
+    }
+
+    private func listToolbarButtonLabel(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: listToolbarButtonWidth, height: listToolbarButtonHeight)
     }
 
     private func stationIndicatorSymbol(for station: Station) -> String? {
