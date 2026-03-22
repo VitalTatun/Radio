@@ -20,20 +20,18 @@ final class RadioPlayer: ObservableObject {
             saveVolume()
         }
     }
-    @Published private(set) var statusText = Localization.statusStopped
-    @Published private(set) var nowPlayingTitle = Localization.unknownTrack
-    @Published private(set) var nowPlayingArtist = Localization.unknownArtist
+    @Published private(set) var statusText = L10n.string(L10n.playerStatusStopped)
+    @Published private(set) var nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
+    @Published private(set) var nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
     @Published private(set) var nowPlayingArtwork: NSImage?
 
     private static let maxStations = 15
-    private static let defaultStations: [Station] = [
-        Station(name: "Lofi Radio", url: URL(string: "https://play.streamafrica.net/lofiradio")!),
-        Station(name: "BBC Radio 1", url: URL(string: "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one")!)
-    ]
 
-    private let stationsStorageKey = "savedStations"
-    private let selectedStationStorageKey = "selectedStationID"
     private let volumeStorageKey = "playerVolume"
+    private let stationStore: StationStore
+    private let stationValidator: StationValidator
+    private let metadataResolver: NowPlayingMetadataResolver
+    private let artworkService: ArtworkService
     private let player = AVPlayer()
     private var cancellables = Set<AnyCancellable>()
     private var itemStatusCancellable: AnyCancellable?
@@ -44,13 +42,31 @@ final class RadioPlayer: ObservableObject {
     private var lastArtworkLookupKey: String?
     private var isCurrentItemReadyToPlay = false
 
-    init() {
+    init(
+        stationStore: StationStore,
+        stationValidator: StationValidator,
+        metadataResolver: NowPlayingMetadataResolver,
+        artworkService: ArtworkService
+    ) {
+        self.stationStore = stationStore
+        self.stationValidator = stationValidator
+        self.metadataResolver = metadataResolver
+        self.artworkService = artworkService
         metadataOutputDelegate.onMetadata = { [weak self] metadataItems in
             self?.applyMetadataItems(metadataItems)
         }
         loadPersistedStations()
         loadPersistedVolume()
         setupObservers()
+    }
+
+    convenience init() {
+        self.init(
+            stationStore: StationStore(),
+            stationValidator: StationValidator(),
+            metadataResolver: NowPlayingMetadataResolver(),
+            artworkService: ArtworkService()
+        )
     }
 
     var selectedStation: Station? {
@@ -65,7 +81,7 @@ final class RadioPlayer: ObservableObject {
         if isPlaying || player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
             pause()
         } else {
-            statusText = Localization.statusStarting
+            statusText = L10n.string(L10n.playerStatusStarting)
             playSelectedStation(forceReload: true)
         }
     }
@@ -73,14 +89,14 @@ final class RadioPlayer: ObservableObject {
     func selectStation(_ station: Station) {
         selectedStationID = station.id
         saveSelectedStationID()
-        statusText = Localization.statusStarting
+        statusText = L10n.string(L10n.playerStatusStarting)
         playSelectedStation(forceReload: true)
     }
 
     func addStation(name: String, urlString: String) -> Bool {
         guard canAddStation else { return false }
 
-        guard let input = validatedStationInput(name: name, urlString: urlString) else {
+        guard let input = stationValidator.validatedInput(name: name, urlString: urlString) else {
             return false
         }
 
@@ -92,7 +108,7 @@ final class RadioPlayer: ObservableObject {
     }
 
     func updateStation(_ station: Station, name: String, urlString: String) -> Bool {
-        guard let input = validatedStationInput(name: name, urlString: urlString),
+        guard let input = stationValidator.validatedInput(name: name, urlString: urlString),
               let index = stations.firstIndex(where: { $0.id == station.id })
         else {
             return false
@@ -102,7 +118,7 @@ final class RadioPlayer: ObservableObject {
         saveStations()
 
         if selectedStationID == station.id {
-            statusText = Localization.statusStarting
+            statusText = L10n.string(L10n.playerStatusStarting)
             playSelectedStation(forceReload: true)
         }
 
@@ -120,7 +136,7 @@ final class RadioPlayer: ObservableObject {
             player.pause()
             player.replaceCurrentItem(with: nil)
             isPlaying = false
-            statusText = Localization.statusNoStations
+            statusText = L10n.string(L10n.playerStatusNoStations)
             resetNowPlaying()
             return
         }
@@ -128,13 +144,13 @@ final class RadioPlayer: ObservableObject {
         if wasSelected {
             selectedStationID = stations.first?.id
             saveSelectedStationID()
-            statusText = Localization.statusStarting
+            statusText = L10n.string(L10n.playerStatusStarting)
             playSelectedStation(forceReload: true)
         }
     }
 
     func restartCurrentStation() {
-        statusText = Localization.statusRestarting
+        statusText = L10n.string(L10n.playerStatusRestarting)
         playSelectedStation(forceReload: true)
     }
 
@@ -142,57 +158,18 @@ final class RadioPlayer: ObservableObject {
         URLCache.shared.removeAllCachedResponses()
     }
 
-    private func validatedStationInput(name: String, urlString: String) -> (name: String, url: URL)? {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedName.isEmpty,
-              let url = URL(string: trimmedURL),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = url.host,
-              !host.isEmpty
-        else {
-            return nil
-        }
-
-        return (trimmedName, url)
-    }
-
     private func loadPersistedStations() {
-        let defaults = UserDefaults.standard
-
-        if let savedData = defaults.data(forKey: stationsStorageKey),
-           let savedStations = try? JSONDecoder().decode([Station].self, from: savedData),
-           !savedStations.isEmpty {
-            stations = savedStations
-        } else {
-            stations = Self.defaultStations
-            saveStations()
-        }
-
-        if let selectedRaw = defaults.string(forKey: selectedStationStorageKey),
-           let selectedUUID = UUID(uuidString: selectedRaw),
-           stations.contains(where: { $0.id == selectedUUID }) {
-            selectedStationID = selectedUUID
-        } else {
-            selectedStationID = stations.first?.id
-            saveSelectedStationID()
-        }
+        stations = stationStore.loadStations()
+        selectedStationID = stationStore.loadSelectedStationID(validStations: stations) ?? stations.first?.id
+        saveSelectedStationID()
     }
 
     private func saveStations() {
-        guard let data = try? JSONEncoder().encode(stations) else { return }
-        UserDefaults.standard.set(data, forKey: stationsStorageKey)
+        stationStore.saveStations(stations)
     }
 
     private func saveSelectedStationID() {
-        guard let selectedStationID else {
-            UserDefaults.standard.removeObject(forKey: selectedStationStorageKey)
-            return
-        }
-
-        UserDefaults.standard.set(selectedStationID.uuidString, forKey: selectedStationStorageKey)
+        stationStore.saveSelectedStationID(selectedStationID)
     }
 
     private func loadPersistedVolume() {
@@ -219,27 +196,27 @@ final class RadioPlayer: ObservableObject {
                 case .paused:
                     self.isPlaying = false
                     if self.isLoadingStation,
-                       self.statusText != Localization.statusStarting,
-                       self.statusText != Localization.statusConnecting,
-                       self.statusText != Localization.statusBuffering,
-                       self.statusText != Localization.statusRestarting {
+                       self.statusText != L10n.string(L10n.playerStatusStarting),
+                       self.statusText != L10n.string(L10n.playerStatusConnecting),
+                       self.statusText != L10n.string(L10n.playerStatusBuffering),
+                       self.statusText != L10n.string(L10n.playerStatusRestarting) {
                         self.isLoadingStation = false
                     }
-                    if self.statusText == Localization.statusBuffering || self.statusText == Localization.statusPlaying {
-                        self.statusText = Localization.statusPaused
+                    if self.statusText == L10n.string(L10n.playerStatusBuffering) || self.statusText == L10n.string(L10n.playerStatusPlaying) {
+                        self.statusText = L10n.string(L10n.playerStatusPaused)
                     }
                 case .waitingToPlayAtSpecifiedRate:
                     self.isPlaying = false
                     self.isLoadingStation = true
-                    self.statusText = Localization.statusBuffering
+                    self.statusText = L10n.string(L10n.playerStatusBuffering)
                 case .playing:
                     self.isPlaying = true
                     self.isLoadingStation = !self.isCurrentItemReadyToPlay
-                    self.statusText = Localization.statusPlaying
+                    self.statusText = L10n.string(L10n.playerStatusPlaying)
                 @unknown default:
                     self.isPlaying = false
                     self.isLoadingStation = false
-                    self.statusText = Localization.statusUnknown
+                    self.statusText = L10n.string(L10n.playerStatusUnknown)
                 }
             }
             .store(in: &cancellables)
@@ -249,7 +226,7 @@ final class RadioPlayer: ObservableObject {
         player.pause()
         isPlaying = false
         isLoadingStation = false
-        statusText = Localization.statusPaused
+        statusText = L10n.string(L10n.playerStatusPaused)
     }
 
     private func playSelectedStation(forceReload: Bool) {
@@ -266,7 +243,7 @@ final class RadioPlayer: ObservableObject {
 
         isCurrentItemReadyToPlay = false
         isLoadingStation = true
-        statusText = Localization.statusConnecting
+        statusText = L10n.string(L10n.playerStatusConnecting)
         resetNowPlaying()
 
         let item = AVPlayerItem(url: station.url)
@@ -314,16 +291,16 @@ final class RadioPlayer: ObservableObject {
                         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCannotFindHost {
                             let host = item.asset as? AVURLAsset
                             let hostName = host?.url.host ?? "unknown-host"
-                            self.statusText = Localization.dnsError(hostName)
+                            self.statusText = L10n.dnsError(hostName)
                         } else {
                             self.statusText = error.localizedDescription
                         }
                     } else {
-                        self.statusText = Localization.playbackError
+                        self.statusText = L10n.string(L10n.playerStatusPlaybackError)
                     }
                 @unknown default:
                     self.isPlaying = false
-                    self.statusText = Localization.playbackError
+                    self.statusText = L10n.string(L10n.playerStatusPlaybackError)
                 }
             }
     }
@@ -332,8 +309,8 @@ final class RadioPlayer: ObservableObject {
         metadataItemsTask?.cancel()
         artworkLoadTask?.cancel()
         lastArtworkLookupKey = nil
-        nowPlayingTitle = Localization.unknownTrack
-        nowPlayingArtist = Localization.unknownArtist
+        nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
+        nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
         nowPlayingArtwork = nil
     }
 
@@ -342,124 +319,33 @@ final class RadioPlayer: ObservableObject {
         metadataItemsTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
-            var detectedTitle: String?
-            var detectedArtist: String?
-            var detectedArtwork: NSImage?
-            var detectedArtworkURL: URL?
+            let resolved = await metadataResolver.resolve(
+                from: items,
+                currentTitle: nowPlayingTitle,
+                currentArtist: nowPlayingArtist,
+                unknownTitle: L10n.string(L10n.playerUnknownTrack),
+                unknownArtist: L10n.string(L10n.playerUnknownArtist)
+            )
 
-            for item in items {
-                if Task.isCancelled { return }
-
-                let raw = (try? await item.load(.stringValue))?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                if let common = item.commonKey?.rawValue {
-                    if common == "title", let raw, !raw.isEmpty {
-                        detectedTitle = raw
-                    }
-                    if common == "artist", let raw, !raw.isEmpty {
-                        detectedArtist = raw
-                    }
-                    if common == "artwork",
-                       let data = try? await item.load(.dataValue),
-                       let image = NSImage(data: data) {
-                        detectedArtwork = image
-                    }
-                }
-
-                if let raw, !raw.isEmpty {
-                    if detectedTitle == nil,
-                       let identifier = item.identifier?.rawValue.lowercased(),
-                       identifier.contains("title") {
-                        detectedTitle = raw
-                    }
-
-                    if detectedArtist == nil,
-                       let identifier = item.identifier?.rawValue.lowercased(),
-                       identifier.contains("artist") {
-                        detectedArtist = raw
-                    }
-
-                    if raw.contains("text=") || raw.contains("amgArtworkURL=") {
-                        let parsed = self.parseIHeartMetadata(raw)
-                        if let artist = parsed.artist, !artist.isEmpty {
-                            detectedArtist = artist
-                        }
-                        if let title = parsed.title, !title.isEmpty {
-                            detectedTitle = title
-                        }
-                        if detectedArtworkURL == nil {
-                            detectedArtworkURL = parsed.artworkURL
-                        }
-                    }
-                }
+            if let title = resolved.title, !title.isEmpty {
+                nowPlayingTitle = title
             }
 
-            if let title = detectedTitle, detectedArtist == nil, title.contains(" - ") {
-                let parts = title.split(separator: "-", maxSplits: 1).map {
-                    String($0).trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if parts.count == 2 {
-                    detectedArtist = parts[0]
-                    detectedTitle = parts[1]
-                }
+            if let artist = resolved.artist, !artist.isEmpty {
+                nowPlayingArtist = artist
             }
 
-            if let detectedTitle, !detectedTitle.isEmpty {
-                self.nowPlayingTitle = detectedTitle
-            }
-
-            if let detectedArtist, !detectedArtist.isEmpty {
-                self.nowPlayingArtist = detectedArtist
-            }
-
-            if let detectedArtwork {
+            if let detectedArtwork = resolved.artwork {
                 self.lastArtworkLookupKey = nil
                 self.nowPlayingArtwork = detectedArtwork
-            } else if let detectedArtworkURL {
+            } else if let detectedArtworkURL = resolved.artworkURL {
                 self.lastArtworkLookupKey = nil
                 self.loadArtwork(from: detectedArtworkURL)
-            } else {
-                let fallbackTitle = (detectedTitle ?? self.nowPlayingTitle).trimmingCharacters(in: .whitespacesAndNewlines)
-                let fallbackArtist = (detectedArtist ?? self.nowPlayingArtist).trimmingCharacters(in: .whitespacesAndNewlines)
-                self.loadArtworkFromSearchIfNeeded(artist: fallbackArtist, title: fallbackTitle)
+            } else if let searchArtist = resolved.artworkSearchArtist,
+                      let searchTitle = resolved.artworkSearchTitle {
+                self.loadArtworkFromSearchIfNeeded(artist: searchArtist, title: searchTitle)
             }
         }
-    }
-
-    private func parseIHeartMetadata(_ raw: String) -> (artist: String?, title: String?, artworkURL: URL?) {
-        var artist: String?
-        var title: String?
-
-        if let dashRange = raw.range(of: " - ") {
-            artist = String(raw[..<dashRange.lowerBound])
-                .replacingOccurrences(of: "StreamTitle='", with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: " '\t\n\r"))
-        }
-
-        title = extractQuotedField("text", from: raw)
-
-        var artworkURL: URL?
-        if let urlString = extractQuotedField("amgArtworkURL", from: raw),
-           let url = URL(string: urlString),
-           let scheme = url.scheme?.lowercased(),
-           ["http", "https"].contains(scheme) {
-            artworkURL = url
-        }
-
-        return (artist, title, artworkURL)
-    }
-
-    private func extractQuotedField(_ key: String, from text: String) -> String? {
-        let marker = key + "=\""
-        guard let start = text.range(of: marker)?.upperBound,
-              let end = text[start...].firstIndex(of: "\"")
-        else {
-            return nil
-        }
-
-        let value = String(text[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
     }
 
     private func loadArtwork(from url: URL) {
@@ -467,9 +353,11 @@ final class RadioPlayer: ObservableObject {
         artworkLoadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let image = try await artworkService.fetchImage(from: url) else {
+                    return
+                }
                 guard !Task.isCancelled,
-                      let image = NSImage(data: data)
+                      self.lastArtworkLookupKey == nil
                 else {
                     return
                 }
@@ -483,8 +371,8 @@ final class RadioPlayer: ObservableObject {
     private func loadArtworkFromSearchIfNeeded(artist: String, title: String) {
         guard !artist.isEmpty,
               !title.isEmpty,
-              artist != Localization.unknownArtist,
-              title != Localization.unknownTrack
+              artist != L10n.string(L10n.playerUnknownArtist),
+              title != L10n.string(L10n.playerUnknownTrack)
         else {
             return
         }
@@ -497,14 +385,15 @@ final class RadioPlayer: ObservableObject {
         artworkLoadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                guard let artworkURL = try await fetchArtworkURL(artist: artist, title: title) else {
+                guard let artworkURL = try await artworkService.searchArtworkURL(artist: artist, title: title) else {
                     return
                 }
 
-                let (data, _) = try await URLSession.shared.data(from: artworkURL)
+                guard let image = try await artworkService.fetchImage(from: artworkURL) else {
+                    return
+                }
                 guard !Task.isCancelled,
-                      self.lastArtworkLookupKey == lookupKey,
-                      let image = NSImage(data: data)
+                      self.lastArtworkLookupKey == lookupKey
                 else {
                     return
                 }
@@ -514,59 +403,5 @@ final class RadioPlayer: ObservableObject {
                 // Keep existing artwork/placeholder when search fails.
             }
         }
-    }
-
-    private func fetchArtworkURL(artist: String, title: String) async throws -> URL? {
-        var components = URLComponents(string: "https://itunes.apple.com/search")
-        components?.queryItems = [
-            URLQueryItem(name: "term", value: "\(artist) \(title)"),
-            URLQueryItem(name: "media", value: "music"),
-            URLQueryItem(name: "entity", value: "song"),
-            URLQueryItem(name: "limit", value: "1")
-        ]
-
-        guard let url = components?.url else { return nil }
-
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let decoded = try JSONDecoder().decode(ITunesSearchResponse.self, from: data)
-
-        guard let first = decoded.results.first else { return nil }
-
-        if let original = first.artworkUrl100 ?? first.artworkUrl60 {
-            let highRes = original
-                .replacingOccurrences(of: "100x100bb", with: "600x600bb")
-                .replacingOccurrences(of: "60x60bb", with: "600x600bb")
-            return URL(string: highRes)
-        }
-
-        return nil
-    }
-}
-
-private struct ITunesSearchResponse: Decodable {
-    let results: [ITunesTrackResult]
-}
-
-private struct ITunesTrackResult: Decodable {
-    let artworkUrl60: String?
-    let artworkUrl100: String?
-}
-
-private enum Localization {
-    static let statusStopped = String(localized: "player.status.stopped")
-    static let statusStarting = String(localized: "player.status.starting")
-    static let statusNoStations = String(localized: "player.status.no_stations")
-    static let statusRestarting = String(localized: "player.status.restarting")
-    static let statusConnecting = String(localized: "player.status.connecting")
-    static let statusBuffering = String(localized: "player.status.buffering")
-    static let statusPlaying = String(localized: "player.status.playing")
-    static let statusPaused = String(localized: "player.status.paused")
-    static let statusUnknown = String(localized: "player.status.unknown")
-    static let playbackError = String(localized: "player.status.playback_error")
-    static let unknownTrack = String(localized: "player.unknown_track")
-    static let unknownArtist = String(localized: "player.unknown_artist")
-
-    static func dnsError(_ hostName: String) -> String {
-        String(format: NSLocalizedString("player.status.dns_error", comment: "DNS resolution failure for the given host"), hostName)
     }
 }

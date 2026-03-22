@@ -24,7 +24,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(radioPlayer.selectedStation?.name ?? String(localized: "station.none_selected"))
+                    Text(radioPlayer.selectedStation?.name ?? L10n.string(L10n.stationNoneSelected))
                         .font(.headline)
                         .lineLimit(1)
                     Text(radioPlayer.statusText)
@@ -44,7 +44,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help(radioPlayer.isPlaying ? String(localized: "action.pause") : String(localized: "action.play"))
+                .help(radioPlayer.isPlaying ? L10n.string(L10n.actionPause) : L10n.string(L10n.actionPlay))
 
                 Button {
                     radioPlayer.restartCurrentStation()
@@ -55,7 +55,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help(String(localized: "action.restart_stream"))
+                .help(L10n.string(L10n.actionRestartStream))
             }
 
             nowPlayingSection
@@ -64,7 +64,7 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("section.stations")
+                Text(L10n.sectionStations)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -78,16 +78,16 @@ struct ContentView: View {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.glass)
-                    .help(String(localized: "action.add_station"))
+                    .help(L10n.string(L10n.actionAddStation))
                 case .limitReached:
-                    Text("stations.limit_reached")
+                    Text(L10n.stationsLimitReached)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if radioPlayer.stations.isEmpty {
-                Text("stations.empty")
+                Text(L10n.stationsEmpty)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -129,21 +129,21 @@ struct ContentView: View {
                             hoveredStationID = isHovering ? station.id : nil
                         }
                         .contextMenu {
-                            Button("action.edit") {
+                            Button(L10n.actionEdit) {
                                 beginEditingStation(station)
                             }
 
                             Button(role: .destructive) {
                                 radioPlayer.deleteStation(station)
                             } label: {
-                                Text("action.delete")
+                                Text(L10n.actionDelete)
                             }
                         }
                     }
                 }
 
                 if case .limitReached = stationListState {
-                    Text("stations.limit_reached_detail")
+                    Text(L10n.stationsLimitReachedDetail)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -213,29 +213,29 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .help(String(localized: "player.volume"))
+        .help(L10n.string(L10n.playerVolume))
     }
 
     private var addStationForm: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("station.name_placeholder", text: $newStationName)
+            TextField(L10n.stationNamePlaceholder, text: $newStationName)
             TextField("https://example.com/stream", text: $newStationURL)
 
             if showValidationError {
-                Text("station.validation_error")
+                Text(L10n.stationValidationError)
                     .foregroundStyle(.red)
                     .font(.caption)
             }
 
             HStack {
-                Button("action.cancel") {
+                Button(L10n.actionCancel) {
                     isShowingAddStationForm = false
                     clearAddStationForm()
                 }
 
                 Spacer()
 
-                Button(editingStation == nil ? String(localized: "action.add") : String(localized: "action.save")) {
+                Button(editingStation == nil ? L10n.string(L10n.actionAdd) : L10n.string(L10n.actionSave)) {
                     let wasSuccessful: Bool
 
                     if let editingStation {
