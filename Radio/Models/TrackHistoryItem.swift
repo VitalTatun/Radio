@@ -2,6 +2,7 @@ import Foundation
 
 struct TrackHistoryItem: Identifiable, Equatable, Codable {
     let id: UUID
+    let trackKey: String
     let title: String
     let artist: String
     let stationName: String
@@ -10,6 +11,7 @@ struct TrackHistoryItem: Identifiable, Equatable, Codable {
 
     init(
         id: UUID = UUID(),
+        trackKey: String,
         title: String,
         artist: String,
         stationName: String,
@@ -17,6 +19,7 @@ struct TrackHistoryItem: Identifiable, Equatable, Codable {
         artworkData: Data? = nil
     ) {
         self.id = id
+        self.trackKey = trackKey
         self.title = title
         self.artist = artist
         self.stationName = stationName

@@ -43,6 +43,7 @@ final class RadioPlayer: ObservableObject {
     private var artworkLoadTask: Task<Void, Never>?
     private var lastArtworkLookupKey: String?
     private var lastRecordedTrackKey: String?
+    private var nowPlayingArtworkTrackKey: String?
     private var isCurrentItemReadyToPlay = false
 
     init(
@@ -317,6 +318,7 @@ final class RadioPlayer: ObservableObject {
         metadataItemsTask?.cancel()
         artworkLoadTask?.cancel()
         lastArtworkLookupKey = nil
+        nowPlayingArtworkTrackKey = nil
         nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
         nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
         nowPlayingArtwork = nil
@@ -343,22 +345,33 @@ final class RadioPlayer: ObservableObject {
                 nowPlayingArtist = artist
             }
 
-            recordTrackHistoryIfNeeded()
+            guard let trackKey = currentTrackKey() else {
+                return
+            }
+
+            if trackKey != lastRecordedTrackKey,
+               nowPlayingArtworkTrackKey != trackKey {
+                nowPlayingArtwork = nil
+            }
+
+            recordTrackHistoryIfNeeded(trackKey: trackKey)
 
             if let detectedArtwork = resolved.artwork {
                 self.lastArtworkLookupKey = nil
                 self.nowPlayingArtwork = detectedArtwork
+                self.nowPlayingArtworkTrackKey = trackKey
+                self.applyArtwork(detectedArtwork, toTrackKey: trackKey)
             } else if let detectedArtworkURL = resolved.artworkURL {
                 self.lastArtworkLookupKey = nil
-                self.loadArtwork(from: detectedArtworkURL)
+                self.loadArtwork(from: detectedArtworkURL, forTrackKey: trackKey)
             } else if let searchArtist = resolved.artworkSearchArtist,
                       let searchTitle = resolved.artworkSearchTitle {
-                self.loadArtworkFromSearchIfNeeded(artist: searchArtist, title: searchTitle)
+                self.loadArtworkFromSearchIfNeeded(artist: searchArtist, title: searchTitle, forTrackKey: trackKey)
             }
         }
     }
 
-    private func loadArtwork(from url: URL) {
+    private func loadArtwork(from url: URL, forTrackKey trackKey: String) {
         artworkLoadTask?.cancel()
         artworkLoadTask = Task { [weak self] in
             guard let self else { return }
@@ -372,14 +385,15 @@ final class RadioPlayer: ObservableObject {
                     return
                 }
                 self.nowPlayingArtwork = image
-                self.applyArtworkToLatestHistoryItem(image)
+                self.nowPlayingArtworkTrackKey = trackKey
+                self.applyArtwork(image, toTrackKey: trackKey)
             } catch {
                 // Keep existing artwork/placeholder when fetch fails.
             }
         }
     }
 
-    private func loadArtworkFromSearchIfNeeded(artist: String, title: String) {
+    private func loadArtworkFromSearchIfNeeded(artist: String, title: String, forTrackKey trackKey: String) {
         guard !artist.isEmpty,
               !title.isEmpty,
               artist != L10n.string(L10n.playerUnknownArtist),
@@ -410,14 +424,39 @@ final class RadioPlayer: ObservableObject {
                 }
 
                 self.nowPlayingArtwork = image
-                self.applyArtworkToLatestHistoryItem(image)
+                self.nowPlayingArtworkTrackKey = trackKey
+                self.applyArtwork(image, toTrackKey: trackKey)
             } catch {
                 // Keep existing artwork/placeholder when search fails.
             }
         }
     }
 
-    private func recordTrackHistoryIfNeeded() {
+    private func recordTrackHistoryIfNeeded(trackKey: String) {
+        guard let stationName = selectedStation?.name else { return }
+
+        let trimmedTitle = nowPlayingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedArtist = nowPlayingArtist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trackKey != lastRecordedTrackKey else { return }
+
+        lastRecordedTrackKey = trackKey
+        trackHistory.insert(
+            TrackHistoryItem(
+                trackKey: trackKey,
+                title: trimmedTitle,
+                artist: trimmedArtist,
+                stationName: stationName,
+                artworkData: nowPlayingArtworkTrackKey == trackKey ? nowPlayingArtwork?.tiffRepresentation : nil
+            ),
+            at: 0
+        )
+
+        if trackHistory.count > Self.maxTrackHistoryCount {
+            trackHistory.removeLast(trackHistory.count - Self.maxTrackHistoryCount)
+        }
+    }
+
+    private func currentTrackKey() -> String? {
         let unknownTitle = L10n.string(L10n.playerUnknownTrack)
         let unknownArtist = L10n.string(L10n.playerUnknownArtist)
         let trimmedTitle = nowPlayingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -429,40 +468,30 @@ final class RadioPlayer: ObservableObject {
               trimmedArtist != unknownArtist,
               let stationName = selectedStation?.name
         else {
-            return
+            return nil
         }
 
-        let trackKey = "\(stationName.lowercased())|\(trimmedArtist.lowercased())|\(trimmedTitle.lowercased())"
-        guard trackKey != lastRecordedTrackKey else { return }
-
-        lastRecordedTrackKey = trackKey
-        trackHistory.insert(
-            TrackHistoryItem(
-                title: trimmedTitle,
-                artist: trimmedArtist,
-                stationName: stationName,
-                artworkData: nowPlayingArtwork?.tiffRepresentation
-            ),
-            at: 0
-        )
-
-        if trackHistory.count > Self.maxTrackHistoryCount {
-            trackHistory.removeLast(trackHistory.count - Self.maxTrackHistoryCount)
-        }
+        return "\(stationName.lowercased())|\(trimmedArtist.lowercased())|\(trimmedTitle.lowercased())"
     }
 
-    private func applyArtworkToLatestHistoryItem(_ image: NSImage) {
-        guard !trackHistory.isEmpty else { return }
+    private func applyArtwork(_ image: NSImage, toTrackKey trackKey: String) {
         guard let artworkData = image.tiffRepresentation else { return }
-        guard trackHistory[0].artworkData == nil else { return }
 
-        let latest = trackHistory[0]
-        trackHistory[0] = TrackHistoryItem(
-            id: latest.id,
-            title: latest.title,
-            artist: latest.artist,
-            stationName: latest.stationName,
-            playedAt: latest.playedAt,
+        if currentTrackKey() == trackKey {
+            nowPlayingArtwork = image
+            nowPlayingArtworkTrackKey = trackKey
+        }
+
+        guard let index = trackHistory.firstIndex(where: { $0.trackKey == trackKey }) else { return }
+
+        let item = trackHistory[index]
+        trackHistory[index] = TrackHistoryItem(
+            id: item.id,
+            trackKey: item.trackKey,
+            title: item.title,
+            artist: item.artist,
+            stationName: item.stationName,
+            playedAt: item.playedAt,
             artworkData: artworkData
         )
     }
