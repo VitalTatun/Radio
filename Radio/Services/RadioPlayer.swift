@@ -40,6 +40,7 @@ final class RadioPlayer: ObservableObject {
     private var metadataOutput: AVPlayerItemMetadataOutput?
     private let metadataOutputDelegate = MetadataOutputDelegate()
     private var metadataItemsTask: Task<Void, Never>?
+    private var commonMetadataTask: Task<Void, Never>?
     private var artworkLoadTask: Task<Void, Never>?
     private var lastArtworkLookupKey: String?
     private var lastRecordedTrackKey: String?
@@ -154,6 +155,7 @@ final class RadioPlayer: ObservableObject {
     }
 
     func restartCurrentStation() {
+        guard selectedStation != nil else { return }
         statusText = L10n.string(L10n.playerStatusRestarting)
         playSelectedStation(forceReload: true)
     }
@@ -281,9 +283,15 @@ final class RadioPlayer: ObservableObject {
                     break
                 case .readyToPlay:
                     self.isCurrentItemReadyToPlay = true
-                    Task { @MainActor [weak self, asset = item.asset] in
+                    self.commonMetadataTask?.cancel()
+                    self.commonMetadataTask = Task { @MainActor [weak self, asset = item.asset, stationID = self.selectedStationID] in
                         guard let self else { return }
                         let commonMetadata = (try? await asset.load(.commonMetadata)) ?? []
+                        guard !Task.isCancelled,
+                              stationID == self.selectedStationID
+                        else {
+                            return
+                        }
                         self.applyMetadataItems(commonMetadata)
                     }
                     if self.player.timeControlStatus == .playing {
@@ -315,6 +323,7 @@ final class RadioPlayer: ObservableObject {
     }
 
     private func resetNowPlaying() {
+        commonMetadataTask?.cancel()
         metadataItemsTask?.cancel()
         artworkLoadTask?.cancel()
         lastArtworkLookupKey = nil

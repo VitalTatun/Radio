@@ -23,6 +23,8 @@ struct ContentView: View {
 
     private let listToolbarButtonHeight: CGFloat = 24
     private let listToolbarButtonWidth: CGFloat = 28
+    private let historyRowHeight: CGFloat = 52
+    private let listMaxHeight: CGFloat = 220
 
     private var stationListState: StationListState {
         radioPlayer.stations.count < 15 ? .canAdd : .limitReached
@@ -35,6 +37,10 @@ struct ContentView: View {
         case .history:
             L10n.sectionHistory
         }
+    }
+
+    private var historyListHeight: CGFloat {
+        min(listContentHeight(itemCount: radioPlayer.trackHistory.count, rowHeight: historyRowHeight, spacing: 6), listMaxHeight)
     }
 
     var body: some View {
@@ -62,6 +68,7 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .help(radioPlayer.isPlaying ? L10n.string(L10n.actionPause) : L10n.string(L10n.actionPlay))
+                .accessibilityLabel(radioPlayer.isPlaying ? L10n.string(L10n.actionPause) : L10n.string(L10n.actionPlay))
 
                 Button {
                     radioPlayer.restartCurrentStation()
@@ -73,6 +80,8 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .help(L10n.string(L10n.actionRestartStream))
+                .accessibilityLabel(L10n.string(L10n.actionRestartStream))
+                .disabled(radioPlayer.selectedStation == nil)
             }
 
             nowPlayingSection
@@ -97,6 +106,7 @@ struct ContentView: View {
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .help(L10n.string(L10n.actionHistory))
+                .accessibilityLabel(L10n.string(L10n.actionHistory))
 
                 if case .history = listMode {
                     Button {
@@ -107,6 +117,7 @@ struct ContentView: View {
                     .buttonStyle(.glass)
                     .controlSize(.small)
                     .help(L10n.string(L10n.actionClearHistory))
+                    .accessibilityLabel(L10n.string(L10n.actionClearHistory))
                     .disabled(radioPlayer.trackHistory.isEmpty)
                 }
 
@@ -121,6 +132,7 @@ struct ContentView: View {
                         .buttonStyle(.glass)
                         .controlSize(.small)
                         .help(L10n.string(L10n.actionAddStation))
+                        .accessibilityLabel(L10n.string(L10n.actionAddStation))
                     case .limitReached:
                         Text(L10n.stationsLimitReached)
                             .font(.caption)
@@ -199,51 +211,54 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    VStack(spacing: 6) {
-                        ForEach(radioPlayer.trackHistory) { item in
-                            HStack(alignment: .top, spacing: 8) {
-                                Group {
-                                    if let artworkData = item.artworkData,
-                                       let artwork = NSImage(data: artworkData) {
-                                        Image(nsImage: artwork)
-                                            .resizable()
-                                            .scaledToFill()
-                                    } else {
-                                        Image(systemName: "music.note")
-                                            .resizable()
-                                            .scaledToFit()
-                                            .padding(6)
-                                            .foregroundStyle(.secondary)
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(radioPlayer.trackHistory) { item in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Group {
+                                        if let artworkData = item.artworkData,
+                                           let artwork = NSImage(data: artworkData) {
+                                            Image(nsImage: artwork)
+                                                .resizable()
+                                                .scaledToFill()
+                                        } else {
+                                            Image(systemName: "music.note")
+                                                .resizable()
+                                                .scaledToFit()
+                                                .padding(6)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
-                                }
-                                .frame(width: 44, height: 44)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .frame(width: 44, height: 44)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.title)
-                                        .font(.subheadline)
-                                        .lineLimit(1)
-                                    Text(item.artist)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                    Text("\(item.stationName) • \(item.playedAt.formatted(date: .omitted, time: .shortened))")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.title)
+                                            .font(.subheadline)
+                                            .lineLimit(1)
+                                        Text(item.artist)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                        Text("\(item.stationName) • \(item.playedAt.formatted(date: .omitted, time: .shortened))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
 
-                                Spacer(minLength: 0)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.secondary.opacity(0.08))
+                                )
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(Color.secondary.opacity(0.08))
-                            )
                         }
                     }
+                    .frame(height: historyListHeight)
                 }
             }
 
@@ -290,7 +305,8 @@ struct ContentView: View {
             Spacer()
         }
         .padding(5)
-        .background(.white.opacity(0.5))
+        .background(Color(.tertiarySystemFill))
+        .animation(.easeInOut(duration: 0.25), value: radioPlayer.isPlaying)
         .clipShape(RoundedRectangle(cornerRadius: 15))
 
     }
@@ -412,6 +428,12 @@ struct ContentView: View {
         }
 
         return nil
+    }
+
+    private func listContentHeight(itemCount: Int, rowHeight: CGFloat, spacing: CGFloat) -> CGFloat {
+        guard itemCount > 0 else { return rowHeight }
+        let totalSpacing = spacing * CGFloat(max(itemCount - 1, 0))
+        return (rowHeight * CGFloat(itemCount)) + totalSpacing
     }
 }
 
