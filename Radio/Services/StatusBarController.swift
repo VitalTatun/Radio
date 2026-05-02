@@ -8,7 +8,7 @@ final class StatusBarController: NSObject {
 
     init(radioPlayer: RadioPlayer) {
         hostingController = NSHostingController(
-            rootView: ContentView().environmentObject(radioPlayer)
+            rootView: ContentView().environment(radioPlayer)
         )
         super.init()
 

@@ -10,12 +10,12 @@ import SwiftUI
 
 @main
 struct RadioApp: App {
-    @StateObject private var menuBarRadioPlayer = RadioPlayer()
+    @State private var menuBarRadioPlayer = RadioPlayer()
 
     var body: some Scene {
         MenuBarExtra("Radio", systemImage: "dot.radiowaves.left.and.right") {
             ContentView()
-                .environmentObject(menuBarRadioPlayer)
+                .environment(menuBarRadioPlayer)
         }
         .menuBarExtraStyle(.window)
 

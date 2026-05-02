@@ -1,68 +1,62 @@
 import AppKit
 import AVFoundation
-import Combine
 import Foundation
+import Observation
 
+@Observable
 @MainActor
-final class RadioPlayer: ObservableObject {
-    @Published private(set) var stations: [Station] = []
-    @Published var selectedStationID: Station.ID?
-    @Published private(set) var isPlaying = false
-    @Published private(set) var isLoadingStation = false
-    @Published var volume: Float = 1.0 {
+final class RadioPlayer {
+    private(set) var stations: [Station] = []
+    var selectedStationID: Station.ID?
+    private(set) var isPlaying = false
+    private(set) var isLoadingStation = false
+    var volume: Float = 1.0 {
         didSet {
             let clamped = min(max(volume, 0), 1)
             if clamped != volume {
                 volume = clamped
                 return
             }
-            player.volume = clamped
+            playbackEngine.volume = clamped
             saveVolume()
         }
     }
-    @Published private(set) var statusText = L10n.string(L10n.playerStatusStopped)
-    @Published private(set) var nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
-    @Published private(set) var nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
-    @Published private(set) var nowPlayingArtwork: NSImage?
-    @Published private(set) var trackHistory: [TrackHistoryItem] = []
+    private(set) var statusText = L10n.string(L10n.playerStatusStopped)
 
     private static let maxStations = 15
-    private static let maxTrackHistoryCount = 10
 
     private let volumeStorageKey = "playerVolume"
     private let stationStore: StationStore
     private let stationValidator: StationValidator
-    private let metadataResolver: NowPlayingMetadataResolver
-    private let artworkService: ArtworkService
-    private let player = AVPlayer()
-    private var cancellables = Set<AnyCancellable>()
-    private var itemStatusCancellable: AnyCancellable?
-    private var metadataOutput: AVPlayerItemMetadataOutput?
-    private let metadataOutputDelegate = MetadataOutputDelegate()
-    private var metadataItemsTask: Task<Void, Never>?
+    private let nowPlayingController: NowPlayingController
+    private let playbackEngine: PlaybackEngine
     private var commonMetadataTask: Task<Void, Never>?
-    private var artworkLoadTask: Task<Void, Never>?
-    private var lastArtworkLookupKey: String?
-    private var lastRecordedTrackKey: String?
-    private var nowPlayingArtworkTrackKey: String?
     private var isCurrentItemReadyToPlay = false
 
     init(
         stationStore: StationStore,
         stationValidator: StationValidator,
         metadataResolver: NowPlayingMetadataResolver,
-        artworkService: ArtworkService
+        artworkService: ArtworkService,
+        playbackEngine: PlaybackEngine
     ) {
         self.stationStore = stationStore
         self.stationValidator = stationValidator
-        self.metadataResolver = metadataResolver
-        self.artworkService = artworkService
-        metadataOutputDelegate.onMetadata = { [weak self] metadataItems in
-            self?.applyMetadataItems(metadataItems)
+        self.playbackEngine = playbackEngine
+        nowPlayingController = NowPlayingController(
+            metadataResolver: metadataResolver,
+            artworkService: artworkService,
+            unknownTitle: L10n.string(L10n.playerUnknownTrack),
+            unknownArtist: L10n.string(L10n.playerUnknownArtist)
+        )
+        nowPlayingController.currentStationName = { [weak self] in
+            self?.selectedStation?.name
+        }
+        self.playbackEngine.onEvent = { [weak self] event in
+            self?.handlePlaybackEvent(event)
         }
         loadPersistedStations()
         loadPersistedVolume()
-        setupObservers()
     }
 
     convenience init() {
@@ -70,7 +64,8 @@ final class RadioPlayer: ObservableObject {
             stationStore: StationStore(),
             stationValidator: StationValidator(),
             metadataResolver: NowPlayingMetadataResolver(),
-            artworkService: ArtworkService()
+            artworkService: ArtworkService(),
+            playbackEngine: PlaybackEngine()
         )
     }
 
@@ -81,9 +76,20 @@ final class RadioPlayer: ObservableObject {
 
     var maxStationsCount: Int { Self.maxStations }
     var canAddStation: Bool { stations.count < Self.maxStations }
+    var nowPlayingTitle: String { nowPlayingController.title }
+    var nowPlayingArtist: String { nowPlayingController.artist }
+    var nowPlayingArtwork: NSImage? { nowPlayingController.artwork }
+    var trackHistory: [TrackHistoryItem] { nowPlayingController.trackHistory }
 
     func togglePlayback() {
-        if isPlaying || player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+        guard selectedStation != nil else {
+            statusText = stations.isEmpty
+                ? L10n.string(L10n.playerStatusNoStations)
+                : L10n.string(L10n.stationNoneSelected)
+            return
+        }
+
+        if isPlaying || playbackEngine.timeControlStatus == .waitingToPlayAtSpecifiedRate {
             pause()
         } else {
             statusText = L10n.string(L10n.playerStatusStarting)
@@ -138,11 +144,10 @@ final class RadioPlayer: ObservableObject {
         guard !stations.isEmpty else {
             selectedStationID = nil
             saveSelectedStationID()
-            player.pause()
-            player.replaceCurrentItem(with: nil)
+            playbackEngine.clearCurrentItem()
             isPlaying = false
             statusText = L10n.string(L10n.playerStatusNoStations)
-            resetNowPlaying()
+            nowPlayingController.reset()
             return
         }
 
@@ -165,8 +170,7 @@ final class RadioPlayer: ObservableObject {
     }
 
     func clearTrackHistory() {
-        trackHistory = []
-        lastRecordedTrackKey = nil
+        nowPlayingController.clearTrackHistory()
     }
 
     private func loadPersistedStations() {
@@ -190,51 +194,15 @@ final class RadioPlayer: ObservableObject {
         } else {
             volume = 1.0
         }
-        player.volume = volume
+        playbackEngine.volume = volume
     }
 
     private func saveVolume() {
         UserDefaults.standard.set(volume, forKey: volumeStorageKey)
     }
 
-    private func setupObservers() {
-        player.publisher(for: \.timeControlStatus)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
-                guard let self else { return }
-
-                switch status {
-                case .paused:
-                    self.isPlaying = false
-                    if self.isLoadingStation,
-                       self.statusText != L10n.string(L10n.playerStatusStarting),
-                       self.statusText != L10n.string(L10n.playerStatusConnecting),
-                       self.statusText != L10n.string(L10n.playerStatusBuffering),
-                       self.statusText != L10n.string(L10n.playerStatusRestarting) {
-                        self.isLoadingStation = false
-                    }
-                    if self.statusText == L10n.string(L10n.playerStatusBuffering) || self.statusText == L10n.string(L10n.playerStatusPlaying) {
-                        self.statusText = L10n.string(L10n.playerStatusPaused)
-                    }
-                case .waitingToPlayAtSpecifiedRate:
-                    self.isPlaying = false
-                    self.isLoadingStation = true
-                    self.statusText = L10n.string(L10n.playerStatusBuffering)
-                case .playing:
-                    self.isPlaying = true
-                    self.isLoadingStation = !self.isCurrentItemReadyToPlay
-                    self.statusText = L10n.string(L10n.playerStatusPlaying)
-                @unknown default:
-                    self.isPlaying = false
-                    self.isLoadingStation = false
-                    self.statusText = L10n.string(L10n.playerStatusUnknown)
-                }
-            }
-            .store(in: &cancellables)
-    }
-
     private func pause() {
-        player.pause()
+        playbackEngine.pause()
         isPlaying = false
         isLoadingStation = false
         statusText = L10n.string(L10n.playerStatusPaused)
@@ -244,264 +212,88 @@ final class RadioPlayer: ObservableObject {
         guard let station = selectedStation else { return }
 
         if !forceReload,
-           let currentAsset = player.currentItem?.asset as? AVURLAsset,
-           currentAsset.url == station.url {
+           playbackEngine.currentAssetURL() == station.url {
             isCurrentItemReadyToPlay = true
             isLoadingStation = false
-            player.play()
+            playbackEngine.playCurrentItem()
             return
         }
 
         isCurrentItemReadyToPlay = false
         isLoadingStation = true
         statusText = L10n.string(L10n.playerStatusConnecting)
-        resetNowPlaying()
-
-        let item = AVPlayerItem(url: station.url)
-        observe(item: item)
-        player.replaceCurrentItem(with: item)
-        player.play()
+        nowPlayingController.reset()
+        playbackEngine.replaceCurrentItem(with: station.url, stationID: station.id)
     }
 
-    private func observe(item: AVPlayerItem) {
-        if let metadataOutput {
-            player.currentItem?.remove(metadataOutput)
-        }
+    private func handlePlaybackEvent(_ event: PlaybackEngine.Event) {
+        switch event {
+        case .timeControlPaused:
+            isPlaying = false
+            if isLoadingStation,
+               statusText != L10n.string(L10n.playerStatusStarting),
+               statusText != L10n.string(L10n.playerStatusConnecting),
+               statusText != L10n.string(L10n.playerStatusBuffering),
+               statusText != L10n.string(L10n.playerStatusRestarting) {
+                isLoadingStation = false
+            }
+            if statusText == L10n.string(L10n.playerStatusBuffering) || statusText == L10n.string(L10n.playerStatusPlaying) {
+                statusText = L10n.string(L10n.playerStatusPaused)
+            }
 
-        let metadataOutput = AVPlayerItemMetadataOutput(identifiers: nil)
-        metadataOutput.setDelegate(metadataOutputDelegate, queue: .main)
-        item.add(metadataOutput)
-        self.metadataOutput = metadataOutput
+        case .timeControlWaiting:
+            isPlaying = false
+            isLoadingStation = true
+            statusText = L10n.string(L10n.playerStatusBuffering)
 
-        itemStatusCancellable = item.publisher(for: \.status)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] status in
+        case .timeControlPlaying:
+            isPlaying = true
+            isLoadingStation = !isCurrentItemReadyToPlay
+            statusText = L10n.string(L10n.playerStatusPlaying)
+
+        case .timeControlUnknown:
+            isPlaying = false
+            isLoadingStation = false
+            statusText = L10n.string(L10n.playerStatusUnknown)
+
+        case let .itemReadyToPlay(asset, stationID):
+            isCurrentItemReadyToPlay = true
+            commonMetadataTask?.cancel()
+            commonMetadataTask = Task { @MainActor [weak self] in
                 guard let self else { return }
-
-                switch status {
-                case .unknown:
-                    break
-                case .readyToPlay:
-                    self.isCurrentItemReadyToPlay = true
-                    self.commonMetadataTask?.cancel()
-                    self.commonMetadataTask = Task { @MainActor [weak self, asset = item.asset, stationID = self.selectedStationID] in
-                        guard let self else { return }
-                        let commonMetadata = (try? await asset.load(.commonMetadata)) ?? []
-                        guard !Task.isCancelled,
-                              stationID == self.selectedStationID
-                        else {
-                            return
-                        }
-                        self.applyMetadataItems(commonMetadata)
-                    }
-                    if self.player.timeControlStatus == .playing {
-                        self.isLoadingStation = false
-                    }
-                    if self.player.timeControlStatus != .playing {
-                        self.player.play()
-                    }
-                case .failed:
-                    self.isPlaying = false
-                    self.isCurrentItemReadyToPlay = false
-                    self.isLoadingStation = false
-                    if let error = item.error as NSError? {
-                        if error.domain == NSURLErrorDomain && error.code == NSURLErrorCannotFindHost {
-                            let host = item.asset as? AVURLAsset
-                            let hostName = host?.url.host ?? "unknown-host"
-                            self.statusText = L10n.dnsError(hostName)
-                        } else {
-                            self.statusText = error.localizedDescription
-                        }
-                    } else {
-                        self.statusText = L10n.string(L10n.playerStatusPlaybackError)
-                    }
-                @unknown default:
-                    self.isPlaying = false
-                    self.statusText = L10n.string(L10n.playerStatusPlaybackError)
-                }
-            }
-    }
-
-    private func resetNowPlaying() {
-        commonMetadataTask?.cancel()
-        metadataItemsTask?.cancel()
-        artworkLoadTask?.cancel()
-        lastArtworkLookupKey = nil
-        nowPlayingArtworkTrackKey = nil
-        nowPlayingTitle = L10n.string(L10n.playerUnknownTrack)
-        nowPlayingArtist = L10n.string(L10n.playerUnknownArtist)
-        nowPlayingArtwork = nil
-    }
-
-    private func applyMetadataItems(_ items: [AVMetadataItem]) {
-        metadataItemsTask?.cancel()
-        metadataItemsTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            let resolved = await metadataResolver.resolve(
-                from: items,
-                currentTitle: nowPlayingTitle,
-                currentArtist: nowPlayingArtist,
-                unknownTitle: L10n.string(L10n.playerUnknownTrack),
-                unknownArtist: L10n.string(L10n.playerUnknownArtist)
-            )
-
-            if let title = resolved.title, !title.isEmpty {
-                nowPlayingTitle = title
-            }
-
-            if let artist = resolved.artist, !artist.isEmpty {
-                nowPlayingArtist = artist
-            }
-
-            guard let trackKey = currentTrackKey() else {
-                return
-            }
-
-            if trackKey != lastRecordedTrackKey,
-               nowPlayingArtworkTrackKey != trackKey {
-                nowPlayingArtwork = nil
-            }
-
-            recordTrackHistoryIfNeeded(trackKey: trackKey)
-
-            if let detectedArtwork = resolved.artwork {
-                self.lastArtworkLookupKey = nil
-                self.nowPlayingArtwork = detectedArtwork
-                self.nowPlayingArtworkTrackKey = trackKey
-                self.applyArtwork(detectedArtwork, toTrackKey: trackKey)
-            } else if let detectedArtworkURL = resolved.artworkURL {
-                self.lastArtworkLookupKey = nil
-                self.loadArtwork(from: detectedArtworkURL, forTrackKey: trackKey)
-            } else if let searchArtist = resolved.artworkSearchArtist,
-                      let searchTitle = resolved.artworkSearchTitle {
-                self.loadArtworkFromSearchIfNeeded(artist: searchArtist, title: searchTitle, forTrackKey: trackKey)
-            }
-        }
-    }
-
-    private func loadArtwork(from url: URL, forTrackKey trackKey: String) {
-        artworkLoadTask?.cancel()
-        artworkLoadTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let image = try await artworkService.fetchImage(from: url) else {
-                    return
-                }
+                let commonMetadata = (try? await asset.load(.commonMetadata)) ?? []
                 guard !Task.isCancelled,
-                      self.lastArtworkLookupKey == nil
+                      stationID == self.selectedStationID
                 else {
                     return
                 }
-                self.nowPlayingArtwork = image
-                self.nowPlayingArtworkTrackKey = trackKey
-                self.applyArtwork(image, toTrackKey: trackKey)
-            } catch {
-                // Keep existing artwork/placeholder when fetch fails.
+                self.nowPlayingController.handleMetadataItems(commonMetadata)
             }
-        }
-    }
-
-    private func loadArtworkFromSearchIfNeeded(artist: String, title: String, forTrackKey trackKey: String) {
-        guard !artist.isEmpty,
-              !title.isEmpty,
-              artist != L10n.string(L10n.playerUnknownArtist),
-              title != L10n.string(L10n.playerUnknownTrack)
-        else {
-            return
-        }
-
-        let lookupKey = "\(artist.lowercased())|\(title.lowercased())"
-        guard lookupKey != lastArtworkLookupKey else { return }
-        lastArtworkLookupKey = lookupKey
-
-        artworkLoadTask?.cancel()
-        artworkLoadTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let artworkURL = try await artworkService.searchArtworkURL(artist: artist, title: title) else {
-                    return
-                }
-
-                guard let image = try await artworkService.fetchImage(from: artworkURL) else {
-                    return
-                }
-                guard !Task.isCancelled,
-                      self.lastArtworkLookupKey == lookupKey
-                else {
-                    return
-                }
-
-                self.nowPlayingArtwork = image
-                self.nowPlayingArtworkTrackKey = trackKey
-                self.applyArtwork(image, toTrackKey: trackKey)
-            } catch {
-                // Keep existing artwork/placeholder when search fails.
+            if playbackEngine.timeControlStatus == .playing {
+                isLoadingStation = false
             }
+            if playbackEngine.timeControlStatus != .playing {
+                playbackEngine.playCurrentItem()
+            }
+
+        case let .itemFailed(error, asset):
+            isPlaying = false
+            isCurrentItemReadyToPlay = false
+            isLoadingStation = false
+            if let error {
+                if error.domain == NSURLErrorDomain && error.code == NSURLErrorCannotFindHost {
+                    let host = asset as? AVURLAsset
+                    let hostName = host?.url.host ?? "unknown-host"
+                    statusText = L10n.dnsError(hostName)
+                } else {
+                    statusText = error.localizedDescription
+                }
+            } else {
+                statusText = L10n.string(L10n.playerStatusPlaybackError)
+            }
+
+        case let .metadata(items):
+            nowPlayingController.handleMetadataItems(items)
         }
-    }
-
-    private func recordTrackHistoryIfNeeded(trackKey: String) {
-        guard let stationName = selectedStation?.name else { return }
-
-        let trimmedTitle = nowPlayingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedArtist = nowPlayingArtist.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trackKey != lastRecordedTrackKey else { return }
-
-        lastRecordedTrackKey = trackKey
-        trackHistory.insert(
-            TrackHistoryItem(
-                trackKey: trackKey,
-                title: trimmedTitle,
-                artist: trimmedArtist,
-                stationName: stationName,
-                artworkData: nowPlayingArtworkTrackKey == trackKey ? nowPlayingArtwork?.tiffRepresentation : nil
-            ),
-            at: 0
-        )
-
-        if trackHistory.count > Self.maxTrackHistoryCount {
-            trackHistory.removeLast(trackHistory.count - Self.maxTrackHistoryCount)
-        }
-    }
-
-    private func currentTrackKey() -> String? {
-        let unknownTitle = L10n.string(L10n.playerUnknownTrack)
-        let unknownArtist = L10n.string(L10n.playerUnknownArtist)
-        let trimmedTitle = nowPlayingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedArtist = nowPlayingArtist.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedTitle.isEmpty,
-              !trimmedArtist.isEmpty,
-              trimmedTitle != unknownTitle,
-              trimmedArtist != unknownArtist,
-              let stationName = selectedStation?.name
-        else {
-            return nil
-        }
-
-        return "\(stationName.lowercased())|\(trimmedArtist.lowercased())|\(trimmedTitle.lowercased())"
-    }
-
-    private func applyArtwork(_ image: NSImage, toTrackKey trackKey: String) {
-        guard let artworkData = image.tiffRepresentation else { return }
-
-        if currentTrackKey() == trackKey {
-            nowPlayingArtwork = image
-            nowPlayingArtworkTrackKey = trackKey
-        }
-
-        guard let index = trackHistory.firstIndex(where: { $0.trackKey == trackKey }) else { return }
-
-        let item = trackHistory[index]
-        trackHistory[index] = TrackHistoryItem(
-            id: item.id,
-            trackKey: item.trackKey,
-            title: item.title,
-            artist: item.artist,
-            stationName: item.stationName,
-            playedAt: item.playedAt,
-            artworkData: artworkData
-        )
     }
 }
